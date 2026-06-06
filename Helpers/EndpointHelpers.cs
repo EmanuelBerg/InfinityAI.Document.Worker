@@ -1,24 +1,22 @@
-using InfinityAI.Api.Models.Database;
-using InfinityAI.Api.Services;
-using System.Text;
+using InfinityAI.Document.Worker.Models;
 using System.Text.RegularExpressions;
 
-namespace InfinityAI.Api.Helpers;
+namespace InfinityAI.Document.Worker.Helpers;
 
 public static class EndpointHelpers
 {
     public static bool IsTextExtractableDocument(string documentType, string extension)
     {
         extension = extension.ToLowerInvariant();
-        return string.Equals(documentType, "Txt", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Markdown", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Pdf", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Docx", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Excel", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Csv", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(documentType, "Code", StringComparison.OrdinalIgnoreCase)
-               || extension is ".txt" or ".md" or ".pdf" or ".docx" or ".xlsx" or ".xlsm" or ".csv"
-               || IsPlainTextExtension(extension);
+        return string.Equals(documentType, "Txt",      StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Markdown", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Pdf",      StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Docx",     StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Excel",    StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Csv",      StringComparison.OrdinalIgnoreCase)
+            || string.Equals(documentType, "Code",     StringComparison.OrdinalIgnoreCase)
+            || extension is ".txt" or ".md" or ".pdf" or ".docx" or ".xlsx" or ".xlsm" or ".csv"
+            || IsPlainTextExtension(extension);
     }
 
     public static bool IsPlainTextExtension(string extension)
@@ -39,11 +37,11 @@ public static class EndpointHelpers
             ".lua" or ".r" or ".m" or ".f90" or ".fs" or ".fsx" or ".vb";
     }
 
-    public static List<DocumentChunk> CreateDocumentChunks(
+    public static List<WorkerChunk> CreateDocumentChunks(
         Guid documentId,
         string text,
         int maxChunkLength = 3000,
-        int overlapLength = 300,
+        int overlapLength  = 300,
         int minChunkLength = 150)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -53,9 +51,9 @@ public static class EndpointHelpers
             return CreateTableAwareChunks(documentId, text, maxChunkLength);
 
         var isPdfContent = PageMarkerRegex.IsMatch(text);
-        var segments = ParsePageSegments(text);
-        var chunks = new List<DocumentChunk>();
-        var chunkIndex = 0;
+        var segments     = ParsePageSegments(text);
+        var chunks       = new List<WorkerChunk>();
+        var chunkIndex   = 0;
         string? prevTail = null;
 
         foreach (var segment in segments)
@@ -63,25 +61,21 @@ public static class EndpointHelpers
             var pageText = NormalizeExtractedText(segment.Content, isPdfContent);
             if (string.IsNullOrWhiteSpace(pageText)) continue;
 
-            var workText = prevTail is not null ? prevTail + "\n\n" + pageText : pageText;
-            var tableHeader = ExtractMarkdownTableHeader(pageText);
-            var position = 0;
+            var workText              = prevTail is not null ? prevTail + "\n\n" + pageText : pageText;
+            var tableHeader           = ExtractMarkdownTableHeader(pageText);
+            var position              = 0;
             var isFirstChunkOfSegment = true;
 
             while (position < workText.Length)
             {
                 var remaining = workText.Length - position;
-                var length = Math.Min(maxChunkLength, remaining);
+                var length    = Math.Min(maxChunkLength, remaining);
                 var chunkText = workText.Substring(position, length);
 
                 if (position + length < workText.Length)
                 {
                     var splitAt = FindBestSplitPosition(chunkText, maxChunkLength);
-                    if (splitAt > minChunkLength)
-                    {
-                        chunkText = chunkText[..splitAt].Trim();
-                        length = splitAt;
-                    }
+                    if (splitAt > minChunkLength) { chunkText = chunkText[..splitAt].Trim(); length = splitAt; }
                 }
 
                 chunkText = chunkText.Trim();
@@ -96,17 +90,16 @@ public static class EndpointHelpers
 
                 if (chunkText.Length >= 80)
                 {
-                    chunks.Add(new DocumentChunk
+                    chunks.Add(new WorkerChunk
                     {
-                        Id = Guid.NewGuid(),
-                        DocumentId = documentId,
-                        ChunkIndex = chunkIndex++,
-                        Content = chunkText,
-                        PageNumber = segment.PageNumber,
-                        Heading = DetectHeading(chunkText),
+                        Id             = Guid.NewGuid(),
+                        DocumentId     = documentId,
+                        ChunkIndex     = chunkIndex++,
+                        Content        = chunkText,
+                        PageNumber     = segment.PageNumber,
+                        Heading        = DetectHeading(chunkText),
                         CharacterCount = chunkText.Length,
-                        TokenCount = EstimateTokenCount(chunkText),
-                        CreatedUtc = DateTime.UtcNow
+                        TokenCount     = EstimateTokenCount(chunkText)
                     });
                     isFirstChunkOfSegment = false;
                 }
@@ -125,10 +118,11 @@ public static class EndpointHelpers
         return chunks;
     }
 
-    private static List<DocumentChunk> CreateTableAwareChunks(
-        Guid documentId, string text, int maxChunkLength)
+    // ── Table-aware chunking ─────────────────────────────────────────────────
+
+    private static List<WorkerChunk> CreateTableAwareChunks(Guid documentId, string text, int maxChunkLength)
     {
-        var chunks = new List<DocumentChunk>();
+        var chunks       = new List<WorkerChunk>();
         var sheetMatches = SheetMarkerRegex.Matches(text);
 
         for (var i = 0; i < sheetMatches.Count; i++)
@@ -137,8 +131,7 @@ public static class EndpointHelpers
             var sheetName    = m.Groups[1].Value.Trim();
             var contentStart = m.Index + m.Length;
             var contentEnd   = i + 1 < sheetMatches.Count ? sheetMatches[i + 1].Index : text.Length;
-            var sheetContent = text[contentStart..contentEnd];
-            AddTableChunks(documentId, sheetName, sheetContent, maxChunkLength, chunks);
+            AddTableChunks(documentId, sheetName, text[contentStart..contentEnd], maxChunkLength, chunks);
         }
 
         return chunks;
@@ -147,21 +140,19 @@ public static class EndpointHelpers
     private static readonly Regex SheetMarkerRegex =
         new(@"^---\s*Sheet:\s*(.+?)\s*---", RegexOptions.Compiled | RegexOptions.Multiline);
 
-    private static void AddTableChunks(
-        Guid documentId, string sheetName, string sheetContent,
-        int maxChunkLength, List<DocumentChunk> chunks)
+    private static void AddTableChunks(Guid documentId, string sheetName, string sheetContent, int maxChunkLength, List<WorkerChunk> chunks)
     {
-        var lines = sheetContent.Split('\n');
+        var lines       = sheetContent.Split('\n');
         string? headerLine = null, separatorLine = null;
-        var dataLines = new List<string>();
+        var dataLines   = new List<string>();
 
         foreach (var rawLine in lines)
         {
             var line = rawLine.TrimEnd('\r').TrimEnd();
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith('|')) continue;
-            if (headerLine is null) { headerLine = line; }
+            if (headerLine is null)                                                    { headerLine = line; }
             else if (separatorLine is null && line.All(c => c is '|' or '-' or ' ' or ':')) { separatorLine = line; }
-            else { dataLines.Add(line); }
+            else                                                                        { dataLines.Add(line); }
         }
 
         if (headerLine is null) return;
@@ -176,39 +167,32 @@ public static class EndpointHelpers
             if (currentRows.Count == 0) return;
             var content = (headerBlock + "\n" + string.Join("\n", currentRows)).Trim();
             if (content.Length >= 80)
-            {
-                chunks.Add(new DocumentChunk
+                chunks.Add(new WorkerChunk
                 {
                     Id = Guid.NewGuid(), DocumentId = documentId, ChunkIndex = chunks.Count,
-                    Content = content, PageNumber = null, Heading = sheetName,
-                    CharacterCount = content.Length, TokenCount = EstimateTokenCount(content),
-                    CreatedUtc = DateTime.UtcNow
+                    Content = content, Heading = sheetName, CharacterCount = content.Length,
+                    TokenCount = EstimateTokenCount(content)
                 });
-            }
             currentRows.Clear();
             currentLength = headerBlock.Length;
         }
 
         foreach (var row in dataLines)
         {
-            var rowLen = row.Length + 1;
-            if (currentRows.Count > 0 && currentLength + rowLen > maxChunkLength) Flush();
+            if (currentRows.Count > 0 && currentLength + row.Length + 1 > maxChunkLength) Flush();
             currentRows.Add(row);
-            currentLength += rowLen;
+            currentLength += row.Length + 1;
         }
 
         Flush();
 
         if (dataLines.Count == 0 && headerBlock.Length >= 80)
-        {
-            chunks.Add(new DocumentChunk
+            chunks.Add(new WorkerChunk
             {
                 Id = Guid.NewGuid(), DocumentId = documentId, ChunkIndex = chunks.Count,
-                Content = headerBlock.Trim(), PageNumber = null, Heading = sheetName,
-                CharacterCount = headerBlock.Length, TokenCount = EstimateTokenCount(headerBlock),
-                CreatedUtc = DateTime.UtcNow
+                Content = headerBlock.Trim(), Heading = sheetName,
+                CharacterCount = headerBlock.Length, TokenCount = EstimateTokenCount(headerBlock)
             });
-        }
     }
 
     private static string BuildSeparatorFromHeader(string headerLine)
@@ -217,14 +201,26 @@ public static class EndpointHelpers
         return "| " + string.Join(" | ", parts.Select(p => new string('-', Math.Max(3, p.Trim().Length)))) + " |";
     }
 
+    // ── Text helpers ─────────────────────────────────────────────────────────
+
     private static string NormalizeExtractedText(string text, bool isPdfContent = false)
     {
         var normalized = text.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\t", "    ");
         normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
         normalized = Regex.Replace(normalized, @"(?<!\n) {2,}", " ");
-        if (isPdfContent)
-            normalized = DocumentExtractionService.CleanupPdfArtifacts(normalized);
+        if (isPdfContent) normalized = CleanupPdfArtifacts(normalized);
         return normalized.Trim();
+    }
+
+    internal static string CleanupPdfArtifacts(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        text = Regex.Replace(text, @"(\d)([A-Za-z])",         "$1 $2");
+        text = Regex.Replace(text, @"Gbps(\d)",               "Gbps $1");
+        text = Regex.Replace(text, @"Mbps(\d)",               "Mbps $1");
+        text = Regex.Replace(text, @"([A-Za-z])(\d)([A-Za-z])", "$1 $2 $3");
+        text = Regex.Replace(text, @" {2,}",                  " ");
+        return text.Trim();
     }
 
     private static readonly Regex PageMarkerRegex =
@@ -235,7 +231,7 @@ public static class EndpointHelpers
     private static List<TextSegment> ParsePageSegments(string text)
     {
         var segments = new List<TextSegment>();
-        var matches = PageMarkerRegex.Matches(text);
+        var matches  = PageMarkerRegex.Matches(text);
 
         if (matches.Count == 0) { segments.Add(new TextSegment(null, text)); return segments; }
 
@@ -247,11 +243,11 @@ public static class EndpointHelpers
 
         for (var i = 0; i < matches.Count; i++)
         {
-            var match = matches[i];
-            var pageNumber = int.Parse(match.Groups[1].Value);
+            var match        = matches[i];
+            var pageNumber   = int.Parse(match.Groups[1].Value);
             var contentStart = match.Index + match.Length;
-            var contentEnd = i + 1 < matches.Count ? matches[i + 1].Index : text.Length;
-            var content = text[contentStart..contentEnd].Trim();
+            var contentEnd   = i + 1 < matches.Count ? matches[i + 1].Index : text.Length;
+            var content      = text[contentStart..contentEnd].Trim();
             if (!string.IsNullOrWhiteSpace(content)) segments.Add(new TextSegment(pageNumber, content));
         }
 
@@ -285,22 +281,20 @@ public static class EndpointHelpers
 
     private static int FindBestSplitPosition(string text, int maxChunkLength)
     {
-        var minPosition = maxChunkLength / 2;
+        var min            = maxChunkLength / 2;
         var paragraphBreak = text.LastIndexOf("\n\n", StringComparison.Ordinal);
-        if (paragraphBreak > minPosition) return paragraphBreak;
+        if (paragraphBreak > min) return paragraphBreak;
         var sentenceEnd = Math.Max(text.LastIndexOf(". ", StringComparison.Ordinal),
-            Math.Max(text.LastIndexOf("! ", StringComparison.Ordinal), text.LastIndexOf("? ", StringComparison.Ordinal)));
-        if (sentenceEnd > minPosition) return sentenceEnd + 1;
+            Math.Max(text.LastIndexOf("! ", StringComparison.Ordinal),
+                     text.LastIndexOf("? ", StringComparison.Ordinal)));
+        if (sentenceEnd > min) return sentenceEnd + 1;
         var lineBreak = text.LastIndexOf('\n');
-        if (lineBreak > minPosition) return lineBreak;
+        if (lineBreak > min) return lineBreak;
         var space = text.LastIndexOf(' ');
-        if (space > minPosition) return space;
+        if (space > min) return space;
         return -1;
     }
 
-    private static int EstimateTokenCount(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return 0;
-        return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
-    }
+    private static int EstimateTokenCount(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
 }

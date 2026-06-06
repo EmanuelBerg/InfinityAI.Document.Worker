@@ -1,11 +1,6 @@
-﻿using InfinityAI.Api.Models.Database;
+namespace InfinityAI.Document.Worker.Services;
 
-namespace InfinityAI.Api.Services
+public interface IDocumentExtractionService
 {
-    public interface IDocumentExtractionService
-    {
-        Task<string> ExtractTextAsync(
-            ApplicationFile file,
-            CancellationToken ct);
-    }
+    Task<string> ExtractTextAsync(byte[] content, string fileExtension, CancellationToken ct);
 }

@@ -1,9 +1,5 @@
-namespace InfinityAI.Api.Models.Ingestion;
+namespace InfinityAI.Document.Worker.Models;
 
-/// <summary>
-/// Queue message published to "document-ingestion" when a document needs processing.
-/// Consumed by <see cref="InfinityAI.Api.Services.DocumentIngestionWorker"/>.
-/// </summary>
 public sealed class DocumentIngestionJob
 {
     public Guid   DocumentId     { get; init; }

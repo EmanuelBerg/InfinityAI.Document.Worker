@@ -1,7 +1,6 @@
-﻿using InfinityAI.Api.Models.Gateway;
 using System.Text.Json;
 
-namespace InfinityAI.Api.Services;
+namespace InfinityAI.Document.Worker.Services;
 
 public sealed class EmbeddingService : IEmbeddingService
 {
@@ -40,19 +39,11 @@ public sealed class EmbeddingService : IEmbeddingService
         if (string.IsNullOrWhiteSpace(modelId))
             throw new InvalidOperationException("Embedding model id is required.");
 
-        _logger.LogInformation(
-            "Embedding service using model {Provider}/{Model}",
-            providerType,
-            modelId);
+        _logger.LogInformation("Embedding {Provider}/{Model}", providerType, modelId);
 
         var response = await _httpClient.PostAsJsonAsync(
             "embeddings",
-            new
-            {
-                Provider = providerType,
-                Model = modelId,
-                Input = text
-            },
+            new { Provider = providerType, Model = modelId, Input = text },
             ct);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -60,60 +51,44 @@ public sealed class EmbeddingService : IEmbeddingService
         if (!response.IsSuccessStatusCode)
         {
             if ((int)response.StatusCode == 429)
-            {
                 throw new InvalidOperationException(
                     "Embedding-kvoten är tillfälligt slut. Dokumentet kan fortfarande användas, men RAG-indexering behöver köras igen senare.");
-            }
 
             throw new InvalidOperationException(
-                $"Embedding misslyckades: {(int)response.StatusCode} {ExtractEmbeddingErrorMessage(body)}");
+                $"Embedding misslyckades: {(int)response.StatusCode} {ExtractErrorMessage(body)}");
         }
 
         var result = JsonSerializer.Deserialize<EmbeddingResponse>(
-            body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         return new EmbeddingExecutionResult
         {
-            Embedding = result?.Data?.FirstOrDefault()?.Embedding ?? [],
+            Embedding   = result?.Data?.FirstOrDefault()?.Embedding ?? [],
             InputTokens = result?.InputTokens ?? 0
         };
     }
 
-    private static string ExtractEmbeddingErrorMessage(string body)
+    private static string ExtractErrorMessage(string body)
     {
-        if (string.IsNullOrWhiteSpace(body))
-            return "Okänt fel.";
-
+        if (string.IsNullOrWhiteSpace(body)) return "Okänt fel.";
         try
         {
             using var doc = JsonDocument.Parse(body);
-
             if (doc.RootElement.TryGetProperty("detail", out var detail))
             {
                 if (detail.ValueKind == JsonValueKind.String)
                     return detail.GetString() ?? body;
-
                 if (detail.ValueKind == JsonValueKind.Object &&
-                    detail.TryGetProperty("error", out var error) &&
-                    error.TryGetProperty("message", out var message))
-                {
-                    return message.GetString() ?? body;
-                }
+                    detail.TryGetProperty("error", out var err) &&
+                    err.TryGetProperty("message", out var msg))
+                    return msg.GetString() ?? body;
             }
-
-            if (doc.RootElement.TryGetProperty("error", out var rootError) &&
-                rootError.TryGetProperty("message", out var rootMessage))
-            {
-                return rootMessage.GetString() ?? body;
-            }
-
+            if (doc.RootElement.TryGetProperty("error", out var rootErr) &&
+                rootErr.TryGetProperty("message", out var rootMsg))
+                return rootMsg.GetString() ?? body;
             return body;
         }
-        catch
-        {
-            return body;
-        }
+        catch { return body; }
     }
 
     private sealed class EmbeddingResponse
