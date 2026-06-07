@@ -125,15 +125,17 @@ public sealed class DocumentIngestionApiClient
         string modelId,
         List<ChunkEmbeddingDto> embeddings,
         int totalInputTokens,
+        long embeddingDurationMs,
         CancellationToken ct)
     {
         using var req = BuildPost($"internal/document-ingestion/documents/{documentId}/embeddings",
             new SubmitEmbeddingsRequest
             {
-                ProviderType     = providerType,
-                ModelId          = modelId,
-                TotalInputTokens = totalInputTokens,
-                Embeddings       = embeddings
+                ProviderType        = providerType,
+                ModelId             = modelId,
+                TotalInputTokens    = totalInputTokens,
+                EmbeddingDurationMs = embeddingDurationMs,
+                Embeddings          = embeddings
             });
         var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();

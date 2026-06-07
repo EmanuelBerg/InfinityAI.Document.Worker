@@ -89,10 +89,11 @@ public sealed class ChunkEmbeddingDto
 
 public sealed class SubmitEmbeddingsRequest
 {
-    public string                ProviderType      { get; init; } = "";
-    public string                ModelId           { get; init; } = "";
-    public int                   TotalInputTokens  { get; init; }
-    public List<ChunkEmbeddingDto> Embeddings      { get; init; } = [];
+    public string                ProviderType        { get; init; } = "";
+    public string                ModelId             { get; init; } = "";
+    public int                   TotalInputTokens    { get; init; }
+    public long                  EmbeddingDurationMs { get; init; }
+    public List<ChunkEmbeddingDto> Embeddings        { get; init; } = [];
 }
 
 // ── Complete / Failed ─────────────────────────────────────────────────────────

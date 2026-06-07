@@ -204,8 +204,9 @@ public sealed class DocumentIngestionWorker(
 
             await apiClient.ReportProgressAsync(job.DocumentId, "Embedding", 0, chunks.Count, 0, ct);
 
-            var embeddingDtos = new List<ChunkEmbeddingDto>();
-            var totalTokens   = 0;
+            var embeddingDtos      = new List<ChunkEmbeddingDto>();
+            var totalTokens        = 0;
+            var embeddingStartTime = DateTime.UtcNow;
 
             for (var i = 0; i < chunks.Count; i++)
             {
@@ -232,9 +233,11 @@ public sealed class DocumentIngestionWorker(
                 await apiClient.ReportProgressAsync(job.DocumentId, "Embedding", i + 1, chunks.Count, pct, ct);
             }
 
+            var embeddingDurationMs = (long)(DateTime.UtcNow - embeddingStartTime).TotalMilliseconds;
+
             logger.LogInformation(
-                "[DOC-WORKER] DocumentId={DocumentId} Embedding done — {Emb}/{Total} chunks embedded",
-                job.DocumentId, embeddingDtos.Count, chunks.Count);
+                "[DOC-WORKER] DocumentId={DocumentId} Embedding done — {Emb}/{Total} chunks embedded, DurationMs={DurationMs}",
+                job.DocumentId, embeddingDtos.Count, chunks.Count, embeddingDurationMs);
 
             // ── Step 8: Submit embeddings to API (API writes DB + Qdrant) ────
 
@@ -244,6 +247,7 @@ public sealed class DocumentIngestionWorker(
                 embeddingModel.ModelId,
                 embeddingDtos,
                 totalTokens,
+                embeddingDurationMs,
                 ct);
 
             // ── Step 9: Complete ─────────────────────────────────────────────
